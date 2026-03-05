@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "vcs-doc": {
+      "type": "stdio",
+      "command": "/home/yimings/claude_vcs_doc_test1/.venv/bin/python",
+      "args": [
+        "/home/yimings/claude_vcs_doc_test1/vcs_mcp_demo_server.py"
+      ],
+      "env": {}
+    }
+  }
+}

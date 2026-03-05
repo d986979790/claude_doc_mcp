@@ -1,0 +1,15 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Local Claude settings/cache
+.claude/
+.vcs_mcp_demo/
+
+# OS/editor junk
+.DS_Store
+*.swp
+*.swo
