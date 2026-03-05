@@ -159,3 +159,52 @@ Claude Code 会自动调用本 MCP server 的工具并整理回复。
 - 服务代码：`vcs_mcp_demo_server.py`
 - MCP 配置：`.mcp.json`
 - 索引/请求缓存：`.vcs_mcp_demo/`
+
+## 10) Web GUI / API 启动与验证
+
+### 10.1 启动 Web 服务
+
+```bash
+.venv/bin/python web_backend/server.py --host 127.0.0.1 --port 8787
+```
+
+打开浏览器访问：
+
+```text
+http://127.0.0.1:8787/
+```
+
+### 10.2 API 快速验证
+
+健康检查：
+
+```bash
+curl -sS http://127.0.0.1:8787/api/health
+```
+
+问答接口：
+
+```bash
+curl -sS http://127.0.0.1:8787/api/qa \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "question":"VCS two-step flow 和 three-step flow 有什么区别？",
+    "guide":"vcs",
+    "top_k":5,
+    "max_pages_for_llm":4,
+    "language":"zh-CN"
+  }'
+```
+
+> 若未配置 `ANTHROPIC_API_KEY`，服务会自动回退为检索答案（`llm.used=false`，并在 `limitations` 说明原因）。
+
+### 10.3 运行 E2E 测试（Web API）
+
+```bash
+.venv/bin/python -m unittest web_backend.test_e2e -v
+```
+
+说明：
+- 测试会自动拉起 `web_backend/server.py`（默认端口 `8788`）。
+- 若端口冲突，可设置环境变量：`WEB_E2E_TEST_PORT=8790`。
+- 若本地未构建索引，`test_qa_smoke` 会自动 `skip`（健康检查与参数校验测试仍会执行）。

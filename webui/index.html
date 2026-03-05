@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VCS/VC Formal QA Web GUI</title>
+    <style>
+      :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      body { margin: 0; padding: 24px; background: #f5f7fb; color: #111827; }
+      .container { max-width: 1080px; margin: 0 auto; }
+      h1 { margin: 0 0 16px; font-size: 24px; }
+      .card { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 16px; }
+      .row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+      .field { display: flex; flex-direction: column; gap: 6px; min-width: 200px; flex: 1; }
+      label { font-size: 13px; color: #374151; }
+      input, select, textarea, button { font: inherit; }
+      input, select, textarea { padding: 8px 10px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; }
+      textarea { min-height: 110px; resize: vertical; }
+      button { border: none; border-radius: 8px; padding: 10px 14px; background: #2563eb; color: #fff; cursor: pointer; }
+      button[disabled] { opacity: .6; cursor: not-allowed; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; line-height: 1.5; }
+      .small { color: #6b7280; font-size: 13px; }
+      .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+      .chip { background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; padding: 8px; }
+      .error { color: #b91c1c; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>VCS / VC Formal QA Web GUI</h1>
+
+      <div class="card">
+        <div class="row">
+          <div class="field" style="flex:2">
+            <label for="question">问题</label>
+            <textarea id="question" placeholder="例如：VCS two-step flow 和 three-step flow 有什么区别？"></textarea>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="guide">Guide</label>
+            <select id="guide">
+              <option value="vcs">vcs</option>
+              <option value="vc_formal">vc_formal</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="topk">top_k</label>
+            <input id="topk" type="number" min="1" max="12" value="6" />
+          </div>
+          <div class="field">
+            <label for="maxPages">max_pages_for_llm</label>
+            <input id="maxPages" type="number" min="1" max="12" value="8" />
+          </div>
+          <div class="field" style="justify-content:end">
+            <label>&nbsp;</label>
+            <button id="askBtn">提交问答</button>
+          </div>
+        </div>
+
+        <div id="status" class="small">就绪。</div>
+        <div id="error" class="error small"></div>
+      </div>
+
+      <div class="card">
+        <div class="small">最终回答</div>
+        <div id="answerFinal" class="mono"></div>
+      </div>
+
+      <div class="card">
+        <div class="small">检索回答（回退）</div>
+        <div id="answerRetrieval" class="mono"></div>
+      </div>
+
+      <div class="card">
+        <div class="small">Request / Page Range</div>
+        <div id="meta" class="mono"></div>
+        <div id="ranges" class="chips"></div>
+      </div>
+
+      <div class="card">
+        <div class="small">Citations</div>
+        <table>
+          <thead>
+            <tr><th>page</th><th>section</th><th>score</th><th>snippet</th></tr>
+          </thead>
+          <tbody id="citations"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
