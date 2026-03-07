@@ -1,4 +1,4 @@
-# PRD：基于 FastMCP 的 VCS/VC Formal User Guide 智能问答 MCP Server
+# PRD：基于 FastMCP 的 User Guide 智能问答 MCP Server
 
 ## 0. 文档信息
 
@@ -9,7 +9,7 @@
 | 状态 | 待评审（已按 Demo V2 实现对齐） |
 | 目标读者 | 产品经理、EDA/CAD 工程师、平台工程师、AI 工程师 |
 | 运行环境 | Linux 本地终端 |
-| 关键输入文档 | `vcs_user_guide.pdf`（VCS User Guide, Version X-2025.06-SP1, Sep 2025）；`VC_Formal_UserGuide.pdf`（VC Formal User Guide） |
+| 关键输入文档 | 任意已授权本地 PDF（内置兼容：`vcs_user_guide.pdf`、`VC_Formal_UserGuide.pdf`） |
 
 ---
 
@@ -64,10 +64,10 @@ VCS User Guide 体量大、内容密集、术语多、选项复杂（如 `vlogan
 
 ### 4.1 In Scope（V1.1 / Demo V2）
 
-1. 本地读取并索引多 Guide PDF：`vcs_user_guide.pdf`、`VC_Formal_UserGuide.pdf`。
+1. 本地读取并索引任意已授权 PDF（首版：单 PDF 对应单 guide）。
 2. 自然语言问答（中文提问，答案中文为主，保留英文命令/参数）。
 3. 检索增强回答（RAG）：返回答案 + citation。
-4. MCP tool 接口（FastMCP）供 Claude Code 调用，支持 `guide` 路由（`vcs` / `vc_formal`）。
+4. MCP tool 接口（FastMCP）供 Claude Code 调用，支持显式 `guide_id` 路由（默认 `vcs`，兼容 `vc_formal` 及历史 alias）。
 5. 基础可观测性（request_id、命中证据数、retrieval_debug）。
 
 ### 4.2 Out of Scope（V1.1 / Demo V2）
@@ -181,6 +181,11 @@ VCS User Guide 体量大、内容密集、术语多、选项复杂（如 `vlogan
   "max_pages": 0
 }
 ```
+
+> `guide` 定义：显式 `guide_id`（持久标识）。
+> - 默认值为 `vcs`（保持兼容）
+> - 新文档首次接入时：`build_vcs_index --guide <new_id> --pdf-path <file.pdf>` 自动注册
+> - 约束：`guide_id` 仅允许 `[a-z0-9_-]+`
 
 **输出示例**：
 ```json

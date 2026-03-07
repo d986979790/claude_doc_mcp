@@ -19,6 +19,10 @@ python3 -m venv .venv
 ## 3) 构建索引
 
 > `--guide` 默认是 `vcs`，不传时保持原有 VCS 行为。
+>
+> 从本版本开始支持“任意文档接入”：首次构建新文档时，显式传入 `--guide <guide_id>` 与 `--pdf-path <file.pdf>` 即可自动注册。
+> - `guide_id` 规则：`[a-z0-9_-]+`（会归一化为小写）
+> - 首版范围：单 PDF 对应单 guide
 
 构建 VCS 手册索引（全量，较慢）：
 
@@ -30,6 +34,12 @@ python3 -m venv .venv
 
 ```bash
 .venv/bin/python vcs_mcp_demo_server.py --build-index --guide vc_formal --pdf-path ./VC_Formal_UserGuide.pdf --force-rebuild
+```
+
+新增任意文档（示例）：
+
+```bash
+.venv/bin/python vcs_mcp_demo_server.py --build-index --guide pt_shell --pdf-path ./PrimeTime_User_Guide.pdf --force-rebuild
 ```
 
 快速演示（仅前 80 页）：
@@ -58,13 +68,19 @@ VC Formal 示例：
 .venv/bin/python vcs_mcp_demo_server.py --ask "VC Formal 某个功能如何使用？" --guide vc_formal --top-k 5
 ```
 
+新增 guide 示例（需先完成对应 guide 的 build-index）：
+
+```bash
+.venv/bin/python vcs_mcp_demo_server.py --ask "如何配置时序报告输出？" --guide pt_shell --top-k 5
+```
+
 ## 5) 拉取证据
 
 ```bash
 .venv/bin/python vcs_mcp_demo_server.py --get-evidence <request_id> --guide vc_formal --limit 3
 ```
 
-> 注意：`--get-evidence` 的 `--guide` 需要与当时提问使用的 guide 一致（`vcs` 或 `vc_formal`），否则会出现找不到 request_id。
+> 注意：`guide_id` 是持久标识，`--get-evidence` 的 `--guide` 必须与当时提问使用的 guide 完全一致，否则会出现找不到 request_id。
 
 ## 6) 作为 MCP Server 使用（Claude Code 端到端）
 
@@ -159,3 +175,4 @@ Claude Code 会自动调用本 MCP server 的工具并整理回复。
 - 服务代码：`vcs_mcp_demo_server.py`
 - MCP 配置：`.mcp.json`
 - 索引/请求缓存：`.vcs_mcp_demo/`
+- guide 注册表：`.vcs_mcp_demo/guides.json`（首次新增 guide 时自动生成）

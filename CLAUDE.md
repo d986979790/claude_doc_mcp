@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-This repo is a **local FastMCP demo server** for Q&A over EDA user guides (currently `vcs` and `vc_formal`).
+This repo is a **local FastMCP demo server** for Q&A over EDA user guides (built-in defaults: `vcs`, `vc_formal`; and supports arbitrary guides via explicit `guide_id`).
 
 - Main implementation: `vcs_mcp_demo_server.py`
 - MCP wiring for Claude Code: `.mcp.json`
 - Product/design context: `PRD_FastMCP_VCS_Guide_QA.md`
 - Usage examples: `README_DEMO.md`
-- Source PDFs: `vcs_user_guide.pdf`, `VC_Formal_UserGuide.pdf`
+- Source PDFs (examples): `vcs_user_guide.pdf`, `VC_Formal_UserGuide.pdf`
 - Runtime cache/output: `.vcs_mcp_demo/` (indexes + request snapshots)
+- Dynamic guide registry: `.vcs_mcp_demo/guides.json` (auto-created when onboarding a new guide)
 
 ## Common commands
 
@@ -33,6 +34,12 @@ python3 -m venv .venv
 
 ### Build index
 
+> `--guide` 默认是 `vcs`，不传时保持原有 VCS 行为。
+>
+> 从本版本开始支持“任意文档接入”：首次构建新文档时，显式传入 `--guide <guide_id>` 与 `--pdf-path <file.pdf>` 即可自动注册。
+> - `guide_id` 规则：`[a-z0-9_-]+`（会归一化为小写）
+> - 首版范围：单 PDF 对应单 guide
+
 Full VCS:
 
 ```bash
@@ -43,6 +50,12 @@ Full VC Formal:
 
 ```bash
 .venv/bin/python vcs_mcp_demo_server.py --build-index --guide vc_formal --pdf-path ./VC_Formal_UserGuide.pdf --force-rebuild
+```
+
+Onboard any new guide (first build auto-registers):
+
+```bash
+.venv/bin/python vcs_mcp_demo_server.py --build-index --guide pt_shell --pdf-path ./PrimeTime_User_Guide.pdf --force-rebuild
 ```
 
 Quick demo (first 80 pages):
@@ -115,7 +128,18 @@ There is compatibility handling for legacy VCS index path `.vcs_mcp_demo/index.j
 
 ### 4) Guide routing and normalization
 
-Guide keys are normalized through aliases (e.g. `vcformal`, `vc-formal` -> `vc_formal`) and validated against `GUIDE_CONFIG`. Guide config also provides default PDF filename and version hint used in response limitations.
+Guide keys are normalized by a merged registry model:
+
+- built-in defaults (`vcs`, `vc_formal`) for backward compatibility
+- runtime registry from `.vcs_mcp_demo/guides.json`
+- alias resolution (e.g. `vcformal`, `vc-formal` -> `vc_formal`)
+
+New guides are registered on first successful `build_vcs_index --guide <guide_id> --pdf-path <file.pdf>`.
+
+Constraints:
+
+- `guide_id` must match `[a-z0-9_-]+` (normalized to lowercase)
+- alias conflicts are rejected during registration
 
 ### 5) Index build pipeline
 

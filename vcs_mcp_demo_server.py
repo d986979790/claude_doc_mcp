@@ -45,25 +45,22 @@ INDEXES_DIR = (DATA_ROOT / "indexes").resolve()
 REQUESTS_ROOT = (DATA_ROOT / "requests").resolve()
 LEGACY_VCS_INDEX_PATH = (DATA_ROOT / "index.json").resolve()
 
-GUIDE_CONFIG: dict[str, dict[str, str]] = {
+DEFAULT_GUIDES: dict[str, dict[str, Any]] = {
     "vcs": {
         "label": "VCS User Guide",
         "default_pdf": "vcs_user_guide.pdf",
         "version_hint": "请确认你的 VCS 版本与手册版本一致（X-2025.06-SP1）",
+        "aliases": ["vcs"],
     },
     "vc_formal": {
         "label": "VC Formal User Guide",
         "default_pdf": "VC_Formal_UserGuide.pdf",
         "version_hint": "请确认你的 VC Formal 版本与手册版本一致",
+        "aliases": ["vcformal", "vc-formal", "vc_formal"],
     },
 }
-
-GUIDE_ALIASES = {
-    "vcs": "vcs",
-    "vcformal": "vc_formal",
-    "vc_formal": "vc_formal",
-    "vc-formal": "vc_formal",
-}
+GUIDES_REGISTRY_PATH = (DATA_ROOT / "guides.json").resolve()
+GUIDE_ID_RE = re.compile(r"^[a-z0-9_-]+$")
 
 TOKEN_RE = re.compile(r"[A-Za-z0-9_./:+-]+")
 OPTION_RE = re.compile(r"-[A-Za-z0-9_]+")
@@ -124,18 +121,168 @@ def _ensure_path_within_workspace(target: Path) -> None:
         raise ValueError(f"E9001: 目标路径越界，不允许访问 {resolved_target}")
 
 
-def _normalize_guide(guide: str | None) -> str:
+def _sanitize_guide_id(guide: str | None) -> str:
     raw = (guide or "vcs").strip().lower()
-    normalized = GUIDE_ALIASES.get(raw, raw)
-    if normalized not in GUIDE_CONFIG:
-        supported = ", ".join(sorted(GUIDE_CONFIG.keys()))
-        raise ValueError(f"E1001: 不支持的 guide={guide}，可选值: {supported}")
+    if not raw:
+        raw = "vcs"
+    if not GUIDE_ID_RE.match(raw):
+        raise ValueError("E1001: guide_id 仅允许小写字母、数字、下划线或连字符（[a-z0-9_-]+）")
+    return raw
+
+
+def _normalize_guide_meta(guide_id: str, raw_meta: dict[str, Any] | None) -> dict[str, Any]:
+    meta = raw_meta or {}
+    aliases_raw = meta.get("aliases", [])
+    aliases: list[str] = []
+    if isinstance(aliases_raw, list):
+        for item in aliases_raw:
+            if not isinstance(item, str):
+                continue
+            alias = item.strip().lower()
+            if not alias:
+                continue
+            if GUIDE_ID_RE.match(alias):
+                aliases.append(alias)
+
+    default_label = " ".join(part for part in re.split(r"[_-]+", guide_id) if part).title() or guide_id
+    return {
+        "label": str(meta.get("label") or default_label),
+        "default_pdf": str(meta.get("default_pdf") or ""),
+        "version_hint": str(meta.get("version_hint") or "请确认你的文档版本与当前索引一致"),
+        "aliases": sorted(set(aliases)),
+    }
+
+
+def _load_runtime_guides() -> tuple[dict[str, dict[str, Any]], list[str]]:
+    warnings: list[str] = []
+    _ensure_path_within_workspace(GUIDES_REGISTRY_PATH)
+
+    if not GUIDES_REGISTRY_PATH.exists():
+        return {}, warnings
+
+    try:
+        payload = json.loads(GUIDES_REGISTRY_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        warnings.append(f"E2002: guides 注册表解析失败，已回退默认 guide。detail={exc}")
+        return {}, warnings
+
+    if not isinstance(payload, dict):
+        warnings.append("E2002: guides 注册表格式错误（需为 JSON object），已回退默认 guide。")
+        return {}, warnings
+
+    raw_guides = payload.get("guides", {})
+    if not isinstance(raw_guides, dict):
+        warnings.append("E2002: guides 注册表字段 guides 非 object，已回退默认 guide。")
+        return {}, warnings
+
+    runtime_guides: dict[str, dict[str, Any]] = {}
+    for raw_id, raw_meta in raw_guides.items():
+        if not isinstance(raw_id, str):
+            warnings.append("E2002: guides 注册表包含非法 guide_id（非字符串），已忽略。")
+            continue
+        try:
+            guide_id = _sanitize_guide_id(raw_id)
+        except ValueError:
+            warnings.append(f"E2002: guides 注册表包含非法 guide_id={raw_id}，已忽略。")
+            continue
+
+        if raw_meta is None:
+            raw_meta_dict: dict[str, Any] = {}
+        elif isinstance(raw_meta, dict):
+            raw_meta_dict = raw_meta
+        else:
+            warnings.append(f"E2002: guide={guide_id} 的元数据不是 object，已忽略。")
+            continue
+
+        runtime_guides[guide_id] = _normalize_guide_meta(guide_id, raw_meta_dict)
+
+    return runtime_guides, warnings
+
+
+def _build_merged_guides(runtime_guides: dict[str, dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    merged: dict[str, dict[str, Any]] = {
+        gid: _normalize_guide_meta(gid, meta)
+        for gid, meta in DEFAULT_GUIDES.items()
+    }
+
+    for gid, meta in runtime_guides.items():
+        normalized_meta = _normalize_guide_meta(gid, meta)
+        if gid in merged:
+            base = merged[gid]
+            merged[gid] = {
+                "label": normalized_meta["label"] or base["label"],
+                "default_pdf": normalized_meta["default_pdf"] or base["default_pdf"],
+                "version_hint": normalized_meta["version_hint"] or base["version_hint"],
+                "aliases": sorted(set(base.get("aliases", []) + normalized_meta.get("aliases", []))),
+            }
+        else:
+            merged[gid] = normalized_meta
+
+    alias_map: dict[str, str] = {}
+    for gid, meta in merged.items():
+        candidate_aliases = [gid] + list(meta.get("aliases", []))
+        for alias in candidate_aliases:
+            owner = alias_map.get(alias)
+            if owner and owner != gid:
+                raise ValueError(f"E1001: guide alias 冲突 alias={alias} 被 {owner} 与 {gid} 同时占用")
+            alias_map[alias] = gid
+
+    return merged, alias_map
+
+
+def _load_guide_registry() -> tuple[dict[str, dict[str, Any]], dict[str, str], list[str]]:
+    runtime_guides, warnings = _load_runtime_guides()
+    merged_guides, alias_map = _build_merged_guides(runtime_guides)
+    return merged_guides, alias_map, warnings
+
+
+def _save_runtime_guides(runtime_guides: dict[str, dict[str, Any]]) -> None:
+    _ensure_path_within_workspace(DATA_ROOT)
+    _ensure_path_within_workspace(GUIDES_REGISTRY_PATH)
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    payload = {"guides": runtime_guides}
+    GUIDES_REGISTRY_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _register_guide(guide_id: str, meta: dict[str, Any]) -> None:
+    normalized_id = _sanitize_guide_id(guide_id)
+    runtime_guides, warnings = _load_runtime_guides()
+    if warnings:
+        raise ValueError("; ".join(warnings))
+
+    runtime_guides[normalized_id] = _normalize_guide_meta(normalized_id, meta)
+    _build_merged_guides(runtime_guides)
+    _save_runtime_guides(runtime_guides)
+
+
+def _normalize_guide(guide: str | None, allow_missing: bool = False) -> str:
+    raw = _sanitize_guide_id(guide)
+    guides, aliases, _ = _load_guide_registry()
+    normalized = aliases.get(raw, raw)
+
+    if normalized not in guides and not allow_missing:
+        supported = ", ".join(sorted(guides.keys()))
+        raise ValueError(
+            f"E1001: 不支持的 guide={guide}，可选值: {supported}。"
+            "如需新增 guide，请在 build_vcs_index 时提供 --guide <id> 与 --pdf-path <file.pdf>。"
+        )
     return normalized
+
+
+def _guide_meta(guide: str) -> dict[str, Any]:
+    normalized = _normalize_guide(guide)
+    guides, _, _ = _load_guide_registry()
+    return guides[normalized]
 
 
 def _default_pdf_for_guide(guide: str) -> Path:
     normalized = _normalize_guide(guide)
-    path = (WORKSPACE_ROOT / GUIDE_CONFIG[normalized]["default_pdf"]).resolve()
+    default_pdf = str(_guide_meta(normalized).get("default_pdf", "")).strip()
+    if not default_pdf:
+        raise ValueError(
+            f"E1001: guide={normalized} 未配置 default_pdf，请在 build_vcs_index 时显式提供 --pdf-path。"
+        )
+    path = (WORKSPACE_ROOT / default_pdf).resolve()
     _ensure_path_within_workspace(path)
     return path
 
@@ -166,6 +313,7 @@ def _ensure_storage_dirs(guide: str) -> None:
     _ensure_path_within_workspace(DATA_ROOT)
     _ensure_path_within_workspace(INDEXES_DIR)
     _ensure_path_within_workspace(REQUESTS_ROOT)
+    _ensure_path_within_workspace(GUIDES_REGISTRY_PATH)
     requests_dir = _requests_dir_for_guide(guide)
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     INDEXES_DIR.mkdir(parents=True, exist_ok=True)
@@ -519,7 +667,7 @@ def _retrieve(index_data: dict[str, Any], question: str, top_k: int) -> tuple[li
 def _compose_answer(question: str, evidence: list[dict[str, Any]], guide: str) -> tuple[str, float, list[str]]:
     _ = question
     normalized = _normalize_guide(guide)
-    guide_meta = GUIDE_CONFIG[normalized]
+    guide_meta = _guide_meta(normalized)
 
     if not evidence:
         return (
@@ -556,8 +704,31 @@ def build_vcs_index(
     guide: str = "vcs",
 ) -> dict[str, Any]:
     """构建 User Guide 索引（Demo V2）。"""
-    normalized = _normalize_guide(guide)
-    guide_meta = GUIDE_CONFIG[normalized]
+    normalized = _normalize_guide(guide, allow_missing=True)
+
+    if normalized not in _load_guide_registry()[0]:
+        if not pdf_path:
+            raise ValueError(
+                f"E1001: guide={normalized} 尚未注册，首次构建请提供 --pdf-path。"
+                "示例：--build-index --guide <new_guide_id> --pdf-path ./<file>.pdf"
+            )
+
+        seed_path = Path(pdf_path).expanduser().resolve()
+        _ensure_path_within_workspace(seed_path)
+        if seed_path.suffix.lower() != ".pdf":
+            raise ValueError("E1001: 输入文件必须是 .pdf")
+
+        _register_guide(
+            normalized,
+            {
+                "label": " ".join(part for part in re.split(r"[_-]+", normalized) if part).title() or normalized,
+                "default_pdf": seed_path.name,
+                "version_hint": "请确认你的文档版本与当前索引一致",
+                "aliases": [normalized],
+            },
+        )
+
+    guide_meta = _guide_meta(normalized)
     _ensure_storage_dirs(normalized)
 
     path = Path(pdf_path).expanduser().resolve() if pdf_path else _default_pdf_for_guide(normalized)
@@ -691,7 +862,7 @@ def ask_vcs_guide(
         raise ValueError("E1001: question 不能为空")
 
     normalized = _normalize_guide(guide)
-    guide_meta = GUIDE_CONFIG[normalized]
+    guide_meta = _guide_meta(normalized)
     index_data = _load_index(normalized)
     evidence, retrieval_debug = _retrieve(index_data=index_data, question=question, top_k=max(1, top_k))
     answer, confidence, limitations = _compose_answer(question=question, evidence=evidence, guide=normalized)
@@ -765,6 +936,8 @@ def get_vcs_evidence(request_id: str, limit: int = 10, guide: str = "vcs") -> di
 def health_check() -> dict[str, Any]:
     """返回服务与索引健康状态。"""
     _ensure_storage_dirs("vcs")
+    guides_registry, _, registry_warnings = _load_guide_registry()
+
     status = {
         "ok": True,
         "service": "vcs-guide-mcp-demo",
@@ -778,11 +951,14 @@ def health_check() -> dict[str, Any]:
         "checked_at": _utc_now(),
     }
 
+    if registry_warnings:
+        status["registry_warnings"] = registry_warnings
+
     if status["index_exists"]:
         data = _load_index("vcs")
         status["index"] = {
             "guide": "vcs",
-            "guide_label": GUIDE_CONFIG["vcs"]["label"],
+            "guide_label": _guide_meta("vcs")["label"],
             "index_id": data.get("index_id"),
             "retrieval_version": data.get("retrieval_version", "v1_lexical"),
             "pdf_path": data.get("pdf_path"),
@@ -793,7 +969,7 @@ def health_check() -> dict[str, Any]:
         }
 
     guides: dict[str, Any] = {}
-    for guide, meta in GUIDE_CONFIG.items():
+    for guide, meta in guides_registry.items():
         index_path = _index_path_for_guide(guide)
         fallback_path = _legacy_index_path_for_guide(guide)
         using_legacy = bool(fallback_path and not index_path.exists() and fallback_path.exists())
